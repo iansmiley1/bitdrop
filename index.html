@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare R2 Storage Manager</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- AWS SDK v2 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1692.0/aws-sdk.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 p-4 sticky top-0 z-40 shadow-md">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-cloud-arrow-up text-orange-500 text-2xl"></i>
+                <h1 class="text-xl font-bold tracking-wide">R2 Media Manager</h1>
+            </div>
+            <button onclick="toggleSettings()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center space-x-2">
+                <i class="fa-solid fa-gear"></i>
+                <span>Credentials & Config</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 md:p-6 flex-1 w-full space-y-6">
+
+        <!-- Credentials / Configuration Panel -->
+        <div id="settingsPanel" class="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl hidden">
+            <h2 class="text-lg font-semibold text-orange-400 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-key"></i> Cloudflare R2 Settings
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Account ID</label>
+                    <input type="text" id="accountId" placeholder="e.g. 0123456789abcdef0123456789abcdef" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Bucket Name</label>
+                    <input type="text" id="bucketName" placeholder="my-media-bucket" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Access Key ID</label>
+                    <input type="password" id="accessKeyId" placeholder="R2 Access Key" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Secret Access Key</label>
+                    <input type="password" id="secretAccessKey" placeholder="R2 Secret Key" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Public Domain / Custom Domain (Optional)</label>
+                    <input type="text" id="publicDomain" placeholder="https://pub-xxxx.r2.dev or https://media.yourdomain.com" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                    <p class="text-xs text-slate-400 mt-1">If configured, direct public links will use this base URL. Otherwise, 7-day presigned URLs will be generated.</p>
+                </div>
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button onclick="saveSettings()" class="bg-orange-600 hover:bg-orange-500 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
+                    Save Credentials
+                </button>
+            </div>
+        </div>
+
+        <!-- NEW: Storage Usage & Analytics Dashboard Section -->
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-md space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-base font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-chart-pie text-orange-500"></i> Storage Usage Metrics
+                </h2>
+                <span class="text-xs text-slate-400">Cloudflare R2 Free Tier: 10 GB / month</span>
+            </div>
+
+            <!-- Overall Usage Progress Bar -->
+            <div class="space-y-1">
+                <div class="flex justify-between text-xs font-medium text-slate-300">
+                    <span id="usageText">Calculating usage...</span>
+                    <span id="usagePercent">0%</span>
+                </div>
+                <div class="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700 flex">
+                    <div id="usageBarImage" class="bg-blue-500 h-full transition-all duration-300" style="width: 0%" title="Images"></div>
+                    <div id="usageBarVideo" class="bg-purple-500 h-full transition-all duration-300" style="width: 0%" title="Videos"></div>
+                    <div id="usageBarOther" class="bg-slate-500 h-full transition-all duration-300" style="width: 0%" title="Other"></div>
+                </div>
+            </div>
+
+            <!-- Breakdown Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+                <div class="bg-slate-900/70 border border-slate-700/60 rounded-lg p-3">
+                    <div class="flex items-center space-x-2 text-slate-400 text-xs mb-1">
+                        <i class="fa-solid fa-hard-drive"></i>
+                        <span>Total Objects</span>
+                    </div>
+                    <p id="metricTotalFiles" class="text-lg font-bold">0</p>
+                </div>
+
+                <div class="bg-slate-900/70 border border-slate-700/60 rounded-lg p-3">
+                    <div class="flex items-center space-x-2 text-blue-400 text-xs mb-1">
+                        <i class="fa-solid fa-image"></i>
+                        <span>Images</span>
+                    </div>
+                    <p id="metricImages" class="text-lg font-bold">0 MB <span class="text-xs font-normal text-slate-400">(0 files)</span></p>
+                </div>
+
+                <div class="bg-slate-900/70 border border-slate-700/60 rounded-lg p-3">
+                    <div class="flex items-center space-x-2 text-purple-400 text-xs mb-1">
+                        <i class="fa-solid fa-video"></i>
+                        <span>Videos</span>
+                    </div>
+                    <p id="metricVideos" class="text-lg font-bold">0 MB <span class="text-xs font-normal text-slate-400">(0 files)</span></p>
+                </div>
+
+                <div class="bg-slate-900/70 border border-slate-700/60 rounded-lg p-3">
+                    <div class="flex items-center space-x-2 text-slate-400 text-xs mb-1">
+                        <i class="fa-solid fa-file"></i>
+                        <span>Other Files</span>
+                    </div>
+                    <p id="metricOther" class="text-lg font-bold">0 MB <span class="text-xs font-normal text-slate-400">(0 files)</span></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Dropzone -->
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-md">
+            <div id="dropzone" onclick="document.getElementById('fileInput').click()"
+                 ondragover="event.preventDefault(); this.classList.add('border-orange-500')" 
+                 ondragleave="this.classList.remove('border-orange-500')" 
+                 ondrop="handleDrop(event)"
+                 class="border-2 border-dashed border-slate-600 hover:border-orange-500 rounded-lg p-8 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-3 bg-slate-900/50">
+                <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-400"></i>
+                <div>
+                    <p class="text-base font-medium">Drag & drop videos or images here</p>
+                    <p class="text-xs text-slate-500 mt-1">or click to browse local files</p>
+                </div>
+                <input type="file" id="fileInput" class="hidden" multiple onchange="handleFileSelect(event)">
+            </div>
+
+            <!-- Upload Progress -->
+            <div id="progressContainer" class="mt-4 hidden space-y-2">
+                <div class="flex justify-between text-xs text-slate-400 font-mono">
+                    <span id="uploadFilename">Uploading...</span>
+                    <span id="uploadPercentage">0%</span>
+                </div>
+                <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                    <div id="progressBar" class="bg-orange-500 h-full w-0 transition-all duration-150"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Gallery -->
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-md space-y-4">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center space-x-2">
+                    <h2 class="text-lg font-bold">Bucket Assets</h2>
+                    <span id="itemCount" class="bg-slate-700 text-xs px-2.5 py-1 rounded-full text-slate-300">0 files</span>
+                </div>
+                <div class="flex items-center space-x-2 w-full md:w-auto">
+                    <input type="text" id="searchInput" oninput="filterFiles()" placeholder="Search files..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-orange-500 w-full md:w-64">
+                    <button onclick="loadBucketObjects()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg text-sm font-medium transition">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div id="fileGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pt-2"></div>
+            
+            <div id="emptyState" class="text-center py-12 text-slate-500 hidden">
+                <i class="fa-solid fa-folder-open text-4xl mb-2"></i>
+                <p>No objects found in this bucket.</p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modal for Media Preview -->
+    <div id="previewModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl max-w-4xl w-full p-4 relative shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-3 mb-3">
+                <h3 id="modalTitle" class="font-semibold truncate pr-4 text-slate-200 text-sm">Preview</h3>
+                <button onclick="closePreview()" class="text-slate-400 hover:text-white text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div id="modalBody" class="flex-1 overflow-auto flex items-center justify-center bg-slate-950 rounded-lg p-2 min-h-[300px]"></div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-orange-600 text-white px-4 py-3 rounded-lg shadow-2xl text-sm font-medium transition transform translate-y-20 opacity-0 duration-300 z-50 flex items-center space-x-2">
+        <i class="fa-solid fa-circle-check"></i>
+        <span id="toastMsg">Link copied!</span>
+    </div>
+
+    <script>
+        let s3Client = null;
+        let allObjects = [];
+        const FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB in bytes
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSettings();
+            if (hasCredentials()) {
+                initS3();
+                loadBucketObjects();
+            } else {
+                document.getElementById('settingsPanel').classList.remove('hidden');
+            }
+        });
+
+        function toggleSettings() {
+            document.getElementById('settingsPanel').classList.toggle('hidden');
+        }
+
+        function hasCredentials() {
+            return localStorage.getItem('r2_accountId') &&
+                   localStorage.getItem('r2_accessKeyId') &&
+                   localStorage.getItem('r2_secretAccessKey') &&
+                   localStorage.getItem('r2_bucketName');
+        }
+
+        function saveSettings() {
+            localStorage.setItem('r2_accountId', document.getElementById('accountId').value.trim());
+            localStorage.setItem('r2_bucketName', document.getElementById('bucketName').value.trim());
+            localStorage.setItem('r2_accessKeyId', document.getElementById('accessKeyId').value.trim());
+            localStorage.setItem('r2_secretAccessKey', document.getElementById('secretAccessKey').value.trim());
+            localStorage.setItem('r2_publicDomain', document.getElementById('publicDomain').value.trim());
+
+            showToast('Settings saved successfully!');
+            document.getElementById('settingsPanel').classList.add('hidden');
+            initS3();
+            loadBucketObjects();
+        }
+
+        function loadSettings() {
+            document.getElementById('accountId').value = localStorage.getItem('r2_accountId') || '';
+            document.getElementById('bucketName').value = localStorage.getItem('r2_bucketName') || '';
+            document.getElementById('accessKeyId').value = localStorage.getItem('r2_accessKeyId') || '';
+            document.getElementById('secretAccessKey').value = localStorage.getItem('r2_secretAccessKey') || '';
+            document.getElementById('publicDomain').value = localStorage.getItem('r2_publicDomain') || '';
+        }
+
+        function initS3() {
+            AWS.config.update({
+                accessKeyId: localStorage.getItem('r2_accessKeyId'),
+                secretAccessKey: localStorage.getItem('r2_secretAccessKey'),
+                region: 'auto',
+                signatureVersion: 'v4'
+            });
+
+            const accountId = localStorage.getItem('r2_accountId');
+            s3Client = new AWS.S3({
+                endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+                s3ForcePathStyle: true
+            });
+        }
+
+        function loadBucketObjects() {
+            if (!s3Client) return;
+            const bucketName = localStorage.getItem('r2_bucketName');
+
+            s3Client.listObjectsV2({ Bucket: bucketName }, (err, data) => {
+                if (err) {
+                    console.error(err);
+                    showToast('Error listing files: ' + err.message);
+                    return;
+                }
+                allObjects = data.Contents || [];
+                updateUsageMetrics(allObjects);
+                renderObjects(allObjects);
+            });
+        }
+
+        // NEW: Function to compute and render Usage Metrics
+        function updateUsageMetrics(objects) {
+            let totalBytes = 0;
+            let imgBytes = 0, imgCount = 0;
+            let vidBytes = 0, vidCount = 0;
+            let othBytes = 0, othCount = 0;
+
+            objects.forEach(item => {
+                totalBytes += item.Size;
+                if (/\.(jpg|jpeg|png|gif|webp|svg)$/i.test(item.Key)) {
+                    imgBytes += item.Size;
+                    imgCount++;
+                } else if (/\.(mp4|webm|mov|mkv)$/i.test(item.Key)) {
+                    vidBytes += item.Size;
+                    vidCount++;
+                } else {
+                    othBytes += item.Size;
+                    othCount++;
+                }
+            });
+
+            const formatSize = (bytes) => {
+                if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+                return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            };
+
+            const overallPercent = Math.min(((totalBytes / FREE_TIER_BYTES) * 100), 100).toFixed(2);
+            
+            // Text updates
+            document.getElementById('usageText').innerText = `${formatSize(totalBytes)} of 10 GB Free Limit Used`;
+            document.getElementById('usagePercent').innerText = `${overallPercent}%`;
+
+            // Progress bar segment widths
+            document.getElementById('usageBarImage').style.width = `${(imgBytes / FREE_TIER_BYTES) * 100}%`;
+            document.getElementById('usageBarVideo').style.width = `${(vidBytes / FREE_TIER_BYTES) * 100}%`;
+            document.getElementById('usageBarOther').style.width = `${(othBytes / FREE_TIER_BYTES) * 100}%`;
+
+            // Card metric updates
+            document.getElementById('metricTotalFiles').innerText = objects.length;
+            document.getElementById('metricImages').innerHTML = `${formatSize(imgBytes)} <span class="text-xs font-normal text-slate-400">(${imgCount} files)</span>`;
+            document.getElementById('metricVideos').innerHTML = `${formatSize(vidBytes)} <span class="text-xs font-normal text-slate-400">(${vidCount} files)</span>`;
+            document.getElementById('metricOther').innerHTML = `${formatSize(othBytes)} <span class="text-xs font-normal text-slate-400">(${othCount} files)</span>`;
+        }
+
+        function renderObjects(objects) {
+            const grid = document.getElementById('fileGrid');
+            const emptyState = document.getElementById('emptyState');
+            document.getElementById('itemCount').innerText = `${objects.length} files`;
+
+            grid.innerHTML = '';
+            if (objects.length === 0) {
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            emptyState.classList.add('hidden');
+
+            const publicDomain = localStorage.getItem('r2_publicDomain');
+            const bucketName = localStorage.getItem('r2_bucketName');
+
+            objects.forEach(item => {
+                const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(item.Key);
+                const isVideo = /\.(mp4|webm|mov|mkv)$/i.test(item.Key);
+                
+                let liveUrl = publicDomain 
+                    ? `${publicDomain.replace(/\/+$/, '')}/${item.Key.split('/').map(encodeURIComponent).join('/')}`
+                    : s3Client.getSignedUrl('getObject', { Bucket: bucketName, Key: item.Key, Expires: 604800 });
+
+                const card = document.createElement('div');
+                card.className = "bg-slate-900 border border-slate-700/80 rounded-lg p-3 flex flex-col justify-between hover:border-slate-500 transition shadow-sm";
+
+                card.innerHTML = `
+                    <div>
+                        <div class="h-32 bg-slate-950 rounded flex items-center justify-center overflow-hidden mb-3 relative group">
+                            ${isImage ? `<img src="${liveUrl}" class="h-full w-full object-cover">` : ''}
+                            ${isVideo ? `<i class="fa-solid fa-circle-play text-4xl text-orange-500/80"></i>` : ''}
+                            ${!isImage && !isVideo ? `<i class="fa-solid fa-file text-3xl text-slate-500"></i>` : ''}
+                            <button onclick="previewMedia('${liveUrl}', '${item.Key}', '${isImage ? 'image' : isVideo ? 'video' : 'file'}')" 
+                                    class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition text-xs font-semibold text-white gap-2">
+                                <i class="fa-solid fa-eye"></i> Preview
+                            </button>
+                        </div>
+                        <p class="font-medium text-xs text-slate-200 truncate" title="${item.Key}">${item.Key}</p>
+                        <p class="text-[10px] text-slate-400 mt-1">${(item.Size / (1024 * 1024)).toFixed(2)} MB</p>
+                    </div>
+                    <div class="mt-3 pt-2 border-t border-slate-800 flex justify-between items-center gap-2">
+                        <button onclick="copyToClipboard('${liveUrl}')" class="flex-1 bg-orange-600/20 hover:bg-orange-600/40 text-orange-400 py-1.5 px-2 rounded text-xs font-semibold transition flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-link text-[10px]"></i> Copy Link
+                        </button>
+                        <button onclick="deleteObject('${item.Key}')" class="bg-red-500/10 hover:bg-red-500/30 text-red-400 p-1.5 rounded transition">
+                            <i class="fa-solid fa-trash text-xs"></i>
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function handleFileSelect(evt) { uploadFiles(evt.target.files); }
+        function handleDrop(evt) {
+            evt.preventDefault();
+            document.getElementById('dropzone').classList.remove('border-orange-500');
+            if (evt.dataTransfer.files.length) uploadFiles(evt.dataTransfer.files);
+        }
+
+        function uploadFiles(files) {
+            if (!s3Client) return showToast('Please configure R2 settings first.');
+            const bucketName = localStorage.getItem('r2_bucketName');
+
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const uploadFilename = document.getElementById('uploadFilename');
+            const uploadPercentage = document.getElementById('uploadPercentage');
+
+            progressContainer.classList.remove('hidden');
+
+            Array.from(files).forEach((file, index) => {
+                uploadFilename.innerText = `Uploading (${index + 1}/${files.length}): ${file.name}`;
+                
+                const params = {
+                    Bucket: bucketName,
+                    Key: file.name,
+                    Body: file,
+                    ContentType: file.type || 'application/octet-stream'
+                };
+
+                const upload = s3Client.upload(params);
+                upload.on('httpUploadProgress', (evt) => {
+                    const percent = Math.round((evt.loaded / evt.total) * 100);
+                    progressBar.style.width = percent + '%';
+                    uploadPercentage.innerText = percent + '%';
+                });
+
+                upload.send((err) => {
+                    if (err) {
+                        showToast('Upload failed: ' + err.message);
+                    } else {
+                        showToast(`Uploaded ${file.name}`);
+                        loadBucketObjects();
+                    }
+                    if (index === files.length - 1) {
+                        setTimeout(() => progressContainer.classList.add('hidden'), 1500);
+                    }
+                });
+            });
+        }
+
+        function deleteObject(key) {
+            if (!confirm(`Delete "${key}" from R2?`)) return;
+            const bucketName = localStorage.getItem('r2_bucketName');
+            
+            s3Client.deleteObject({ Bucket: bucketName, Key: key }, (err) => {
+                if (err) {
+                    showToast('Delete error: ' + err.message);
+                } else {
+                    showToast('File deleted');
+                    loadBucketObjects();
+                }
+            });
+        }
+
+        function previewMedia(url, name, type) {
+            const modal = document.getElementById('previewModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalBody = document.getElementById('modalBody');
+
+            modalTitle.innerText = name;
+            if (type === 'image') {
+                modalBody.innerHTML = `<img src="${url}" class="max-h-[70vh] object-contain rounded">`;
+            } else if (type === 'video') {
+                modalBody.innerHTML = `<video src="${url}" controls autoplay class="max-h-[70vh] max-w-full rounded"></video>`;
+            } else {
+                modalBody.innerHTML = `<p class="text-slate-400">Preview not available for this format.</p>`;
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closePreview() {
+            const modal = document.getElementById('previewModal');
+            document.getElementById('modalBody').innerHTML = '';
+            modal.classList.add('hidden');
+        }
+
+        function filterFiles() {
+            const q = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = allObjects.filter(item => item.Key.toLowerCase().includes(q));
+            renderObjects(filtered);
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('Live link copied to clipboard!');
+            });
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
